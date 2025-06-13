@@ -40,7 +40,12 @@ class ChapelBooking:
         print(f"[DEBUG] Loaded {len(self.player_names)} player names: {self.player_names}")
         
         self.use_visitors = os.getenv("USE_VISITORS", "false").lower() == "true"
-        self.court_type = os.getenv("DEFAULT_COURT_TYPE", "Padel Courts")
+        self.court_type = os.getenv("COURT_TYPE", "Padel Courts")
+        
+        # Read booking date and time from environment variables
+        self.booking_date = os.getenv("BOOKING_DATE", "18-06-2025")  # DD-MM-YYYY
+        self.booking_time = os.getenv("BOOKING_TIME", "21:00")       # HH:MM
+        print(f"[DEBUG] Booking date: {self.booking_date}, time: {self.booking_time}")
         
         if not self.username or not self.password:
             raise ValueError("Username and password must be set in .env file")
@@ -885,99 +890,57 @@ def main():
     """
     print("[DEBUG] main() starting...")
     chapel = ChapelBooking()
-    try:
-        print("[DEBUG] Calling login()...")
-        if chapel.login():
-            print("[DEBUG] login() returned True. Taking screenshot after login...")
+    if chapel.login():
+        print("[DEBUG] login() returned True. Taking screenshot after login...")
+        try:
+            chapel.driver.save_screenshot("after_login.png")
+            print("[DEBUG] Saved screenshot: after_login.png")
+        except Exception as e:
+            print(f"[DEBUG] Could not save screenshot after login: {e}")
+        try:
+            with open("after_login.html", "w", encoding="utf-8") as f:
+                f.write(chapel.driver.page_source)
+            print("[DEBUG] Saved HTML: after_login.html")
+        except Exception as e:
+            print(f"[DEBUG] Could not save HTML after login: {e}")
+        print("[DEBUG] Refreshing page after login to ensure dropdown is populated...")
+        chapel.driver.refresh()
+        print("[DEBUG] Page refreshed. Waiting for court type dropdown to be populated...")
+        def dropdown_has_option(driver):
             try:
-                chapel.driver.save_screenshot("after_login.png")
-                print("[DEBUG] Saved screenshot: after_login.png")
+                select_elem = driver.find_element(By.ID, "soeg_omraede")
+                options = [o.text.strip() for o in select_elem.find_elements(By.TAG_NAME, "option") if o.text.strip()]
+                print(f"[DEBUG] Dropdown options after refresh: {options}")
+                return any("Padel Courts" in o for o in options)
             except Exception as e:
-                print(f"[DEBUG] Could not save screenshot after login: {e}")
-            try:
-                with open("after_login.html", "w", encoding="utf-8") as f:
-                    f.write(chapel.driver.page_source)
-                print("[DEBUG] Saved HTML: after_login.html")
-            except Exception as e:
-                print(f"[DEBUG] Could not save HTML after login: {e}")
-            print("[DEBUG] Refreshing page after login to ensure dropdown is populated...")
-            chapel.driver.refresh()
-            print("[DEBUG] Page refreshed. Waiting for court type dropdown to be populated...")
-            def dropdown_has_option(driver):
-                try:
-                    select_elem = driver.find_element(By.ID, "soeg_omraede")
-                    options = [o.text.strip() for o in select_elem.find_elements(By.TAG_NAME, "option") if o.text.strip()]
-                    print(f"[DEBUG] Dropdown options after refresh: {options}")
-                    return any("Padel Courts" in o for o in options)
-                except Exception as e:
-                    print(f"[DEBUG] Exception while checking dropdown options: {e}")
-                    return False
-            WebDriverWait(chapel.driver, 20).until(dropdown_has_option)
-            print("[DEBUG] Court type dropdown is now populated. Proceeding to court type selection...")
-            print("[DEBUG] Calling select_court_type()...")
-            if chapel.select_court_type():
-                print("[DEBUG] select_court_type() returned True. Calling select_date()...")
-                print("[DEBUG] Pausing for 60 seconds before date selection for VNC inspection...")
-                time.sleep(60)
-                print("[DEBUG] Resuming script after VNC inspection pause.")
-                print("[DEBUG]\nAttempting to select date: 18-06-2025")
-                max_retries = 3
-                for attempt in range(1, max_retries + 1):
-                    print(f"[DEBUG] Date selection attempt {attempt}...")
-                    try:
-                        if chapel.select_date("18-06-2025"):
-                            print("[DEBUG] Date selection successful! Calling book_court()...")
-                            chapel.book_court("21:00")
-                            break
-                        else:
-                            print(f"[DEBUG] Date selection failed on attempt {attempt}.")
-                    except Exception as e:
-                        print(f"[DEBUG] Exception during date selection attempt {attempt}: {e}")
-                        try:
-                            chapel.driver.save_screenshot(f"date_selection_fail_attempt{attempt}.png")
-                            print(f"[DEBUG] Saved screenshot: date_selection_fail_attempt{attempt}.png")
-                        except Exception as se:
-                            print(f"[DEBUG] Could not save screenshot: {se}")
-                        try:
-                            with open(f"date_selection_fail_attempt{attempt}.html", "w", encoding="utf-8") as f:
-                                f.write(chapel.driver.page_source)
-                            print(f"[DEBUG] Saved HTML: date_selection_fail_attempt{attempt}.html")
-                        except Exception as he:
-                            print(f"[DEBUG] Could not save HTML: {he}")
-                    if attempt < max_retries:
-                        print(f"[DEBUG] Reloading page before retrying date selection (attempt {attempt + 1})...")
-                        chapel.driver.refresh()
-                        # Wait for dropdown to be repopulated
-                        def dropdown_has_option(driver):
-                            try:
-                                select_elem = driver.find_element(By.ID, "soeg_omraede")
-                                options = [o.text.strip() for o in select_elem.find_elements(By.TAG_NAME, "option") if o.text.strip()]
-                                print(f"[DEBUG] Dropdown options after refresh: {options}")
-                                return any("Padel Courts" in o for o in options)
-                            except Exception as e:
-                                print(f"[DEBUG] Exception while checking dropdown options: {e}")
-                                return False
-                        WebDriverWait(chapel.driver, 20).until(dropdown_has_option)
-                        print("[DEBUG] Court type dropdown is now populated after refresh. Reselecting court type...")
-                        chapel.select_court_type()
-                        print("[DEBUG] Pausing for 2 seconds after refresh before retrying date selection...")
-                        time.sleep(2)
-                else:
-                    print("[DEBUG] Date selection failed after all retries!")
+                print(f"[DEBUG] Exception while checking dropdown options: {e}")
+                return False
+        WebDriverWait(chapel.driver, 20).until(dropdown_has_option)
+        print("[DEBUG] Court type dropdown is now populated. Proceeding to court type selection...")
+        print("[DEBUG] Calling select_court_type()...")
+        if chapel.select_court_type():
+            print("[DEBUG] select_court_type() returned True. Calling select_date()...")
+            print("[DEBUG] Pausing for 60 seconds before date selection for VNC inspection...")
+            time.sleep(60)
+            print("[DEBUG] Resuming script after VNC inspection pause.")
+            # Use booking date from environment variable
+            if chapel.select_date(chapel.booking_date):
+                print("[DEBUG] Date selection successful! Calling book_court()...")
+                # Use booking time from environment variable
+                chapel.book_court(chapel.booking_time)
             else:
-                try:
-                    chapel.driver.save_screenshot("court_type_dropdown_not_found.png")
-                    print("[DEBUG] Saved screenshot: court_type_dropdown_not_found.png")
-                except Exception as e:
-                    print(f"[DEBUG] Could not save screenshot after court type dropdown failure: {e}")
-                print("[DEBUG] Court type selection failed!")
+                print("[DEBUG] Date selection failed!")
         else:
-            print("[DEBUG] login() returned False. Login failed.")
-    except Exception as e:
-        print(f"[DEBUG] Error during test: {str(e)}")
-    finally:
-        print("[DEBUG] Closing browser session")
-        chapel.close()
+            try:
+                chapel.driver.save_screenshot("court_type_dropdown_not_found.png")
+                print("[DEBUG] Saved screenshot: court_type_dropdown_not_found.png")
+            except Exception as e:
+                print(f"[DEBUG] Could not save screenshot after court type dropdown failure: {e}")
+            print("[DEBUG] Court type selection failed!")
+    else:
+        print("[DEBUG] login() returned False. Login failed.")
+    print("[DEBUG] Closing browser session")
+    chapel.close()
 
 if __name__ == "__main__":
     main() 
