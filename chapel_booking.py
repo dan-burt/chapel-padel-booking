@@ -6,7 +6,7 @@ from typing import List, Optional
 from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.service import Service
@@ -17,9 +17,19 @@ from selenium.webdriver.common.action_chains import ActionChains
 from urllib.parse import urlparse, urlunparse
 
 class ChapelBooking:
+    """
+    Automates booking a court at Chapel Allerton tennis club using Selenium.
+    Handles login, court type selection, date selection (with robust jQuery UI datepicker logic),
+    player entry, and booking confirmation. Supports both local and remote Selenium drivers.
+    """
     BASE_URL = "https://chapel-a.clubsolution.co.uk/newlook/proc_baner.asp"
     
     def __init__(self):
+        """
+        Initialize the ChapelBooking automation class.
+        Loads environment variables, sets up Selenium driver, and prepares booking parameters.
+        """
+        print("[DEBUG] ChapelBooking.__init__ starting...")
         load_dotenv()
         self.username = os.getenv("CHAPEL_USERNAME")
         self.password = os.getenv("CHAPEL_PASSWORD")
@@ -27,7 +37,7 @@ class ChapelBooking:
         # Handle player names with potential spaces
         player_names = os.getenv("PLAYER_NAMES", "")
         self.player_names = [name.strip() for name in player_names.split(",") if name.strip()]
-        print(f"Loaded {len(self.player_names)} player names")
+        print(f"[DEBUG] Loaded {len(self.player_names)} player names: {self.player_names}")
         
         self.use_visitors = os.getenv("USE_VISITORS", "false").lower() == "true"
         self.court_type = os.getenv("DEFAULT_COURT_TYPE", "Padel Courts")
@@ -36,7 +46,7 @@ class ChapelBooking:
             raise ValueError("Username and password must be set in .env file")
         
         # Initialize Chrome driver
-        print("Initializing Chrome driver...")
+        print("[DEBUG] Initializing Chrome driver...")
         options = Options()
         options.add_argument("--start-maximized")
         options.add_argument("--disable-popup-blocking")
@@ -47,22 +57,34 @@ class ChapelBooking:
             'profile.password_manager_enabled': False
         })
         
-        # Create driver
-        self.driver = webdriver.Chrome(options=options)
+        # For testing: use local Chrome instead of remote Selenium Grid
+        # self.driver = webdriver.Remote(
+        #     command_executor="http://tower.local:4444/wd/hub",
+        #     options=options
+        # )
+        self.driver = webdriver.Remote(
+            command_executor="http://tower.local:4444/wd/hub",
+            options=options
+        )  # <-- REMOTE SELENIUM GRID
         self.wait = WebDriverWait(self.driver, 20)  # Increased timeout
-        print("Chrome driver initialized successfully")
+        print("Chrome driver initialized successfully (using remote Selenium Grid)")
     
     def login(self) -> bool:
-        """Log in to the website."""
+        """
+        Log in to the Chapel Allerton booking website using credentials from environment variables.
+        Handles cookie consent and waits for successful login.
+        Returns True if login is successful, False otherwise.
+        """
+        print("[DEBUG] login() starting...")
         try:
-            print("Navigating to website...")
+            print("[DEBUG] Navigating to website...")
             self.driver.get(self.BASE_URL)
             
             # Handle cookie consent first
             self.handle_cookie_consent()
             
             # Find and click the login link
-            print("Looking for login link...")
+            print("[DEBUG] Looking for login link...")
             login_selectors = [
                 "//a[@data-target='#loginModal']",
                 "//a[contains(@data-target, 'loginModal')]",
@@ -77,7 +99,7 @@ class ChapelBooking:
                         EC.element_to_be_clickable((By.XPATH, selector))
                     )
                     if login_link:
-                        print(f"Found login link with selector: {selector}")
+                        print(f"[DEBUG] Found login link with selector: {selector}")
                         break
                 except:
                     continue
@@ -88,14 +110,14 @@ class ChapelBooking:
             
             # Click the login link to open modal
             login_link.click()
-            print("Clicked login link")
+            print("[DEBUG] Clicked login link")
             
             # Wait for login modal to appear and be visible
-            print("Waiting for login modal...")
+            print("[DEBUG] Waiting for login modal...")
             modal = self.wait.until(
                 EC.visibility_of_element_located((By.ID, "loginModal"))
             )
-            print("Login modal found")
+            print("[DEBUG] Login modal found")
             
             # Wait a moment for animation
             time.sleep(0.5)
@@ -135,7 +157,7 @@ class ChapelBooking:
                         EC.presence_of_element_located((by, selector))
                     )
                     if username_field:
-                        print(f"Found username field with selector: {selector}")
+                        print(f"[DEBUG] Found username field with selector: {selector}")
                         break
                 except:
                     continue
@@ -152,7 +174,7 @@ class ChapelBooking:
                         EC.presence_of_element_located((by, selector))
                     )
                     if password_field:
-                        print(f"Found password field with selector: {selector}")
+                        print(f"[DEBUG] Found password field with selector: {selector}")
                         break
                 except:
                     continue
@@ -166,52 +188,52 @@ class ChapelBooking:
             username_field.send_keys(self.username)
             password_field.clear()
             password_field.send_keys(self.password)
-            print("Entered credentials")
+            print("[DEBUG] Entered credentials")
 
             # Optionally check the 'Stay Logged in' checkbox if present and not already checked
             try:
                 stay_logged_in = modal.find_element(By.ID, "husklogin")
                 if not stay_logged_in.is_selected():
                     stay_logged_in.click()
-                    print("Checked 'Stay Logged in' checkbox")
+                    print("[DEBUG] Checked 'Stay Logged in' checkbox")
                 else:
-                    print("'Stay Logged in' checkbox already checked")
+                    print("[DEBUG] 'Stay Logged in' checkbox already checked")
             except Exception as e:
-                print("'Stay Logged in' checkbox not found or could not be checked (optional)")
+                print("[DEBUG] 'Stay Logged in' checkbox not found or could not be checked (optional)")
 
             # Send Enter key after entering password
             enter_sent = False
             try:
                 password_field.send_keys(Keys.RETURN)
-                print("Sent Enter key after password")
+                print("[DEBUG] Sent Enter key after password")
                 enter_sent = True
             except Exception as e:
-                print(f"Could not send Enter key: {e}")
+                print(f"[DEBUG] Could not send Enter key: {e}")
                 enter_sent = False
 
             # Only click the login button if Enter was not sent
             if not enter_sent:
                 try:
                     login_button = modal.find_element(By.ID, "sub")
-                    print("Found login button <span> with id='sub'")
+                    print("[DEBUG] Found login button <span> with id='sub'")
                 except Exception as e:
-                    print(f"Could not find login button <span> with id='sub': {e}")
+                    print(f"[DEBUG] Could not find login button <span> with id='sub': {e}")
                     return False
                 # Try clicking the button using JavaScript (to trigger the onclick handler)
                 try:
                     self.driver.execute_script("arguments[0].click();", login_button)
-                    print("Clicked login button using JavaScript")
+                    print("[DEBUG] Clicked login button using JavaScript")
                 except Exception as e:
-                    print(f"JavaScript click failed: {e}, trying normal click...")
+                    print(f"[DEBUG] JavaScript click failed: {e}, trying normal click...")
                     try:
                         login_button.click()
-                        print("Clicked login button using Selenium click")
+                        print("[DEBUG] Clicked login button using Selenium click")
                     except Exception as e2:
-                        print(f"Both click methods failed: {e2}")
+                        print(f"[DEBUG] Both click methods failed: {e2}")
                         return False
-                print("Submitted login form")
+                print("[DEBUG] Submitted login form")
             else:
-                print("Submitted login form via Enter key")
+                print("[DEBUG] Submitted login form via Enter key")
             
             # Print the modal HTML after login attempt for debugging
             try:
@@ -219,43 +241,46 @@ class ChapelBooking:
                 print("\nLogin modal HTML after login attempt:")
                 print(modal_html)
             except Exception as e:
-                print(f"Could not get modal HTML: {e}")
+                print(f"[DEBUG] Could not get modal HTML: {e}")
             
             # Wait for login modal to disappear
             try:
-                print("Waiting for login modal to disappear...")
+                print("[DEBUG] Waiting for login modal to disappear...")
                 self.wait.until(EC.invisibility_of_element_located((By.ID, "loginModal")))
-                print("Login modal disappeared")
+                print("[DEBUG] Login modal disappeared")
             except Exception as e:
-                print(f"Login modal did not disappear: {e}")
+                print(f"[DEBUG] Login modal did not disappear: {e}")
 
             # Wait for the generic username span to appear (indicating successful login for any user)
             try:
-                print("Waiting for username to appear in top right (any user)...")
+                print("[DEBUG] Waiting for username to appear in top right (any user)...")
                 user_xpath = "//span[i[contains(@class, 'fa-user')]]/span[contains(@class, 'caret')]/.."
                 self.wait.until(
                     EC.presence_of_element_located((By.XPATH, user_xpath))
                 )
                 user_span = self.driver.find_element(By.XPATH, user_xpath)
                 username = user_span.text.replace('caret', '').strip()
-                print(f"Login successful - username found in top right: {username}")
+                print(f"[DEBUG] Login successful - username found in top right: {username}")
                 return True
             except TimeoutException:
-                print("Timeout waiting for username to appear - login may have failed")
+                print("[DEBUG] Timeout waiting for username to appear - login may have failed")
                 return False
             
         except Exception as e:
-            print(f"Error during login: {str(e)}")
+            print(f"[DEBUG] Error during login: {str(e)}")
             return False
     
     def handle_cookie_consent(self) -> bool:
-        """Handle cookie consent popup if present."""
+        """
+        Handle the cookie consent popup if present.
+        Returns True if handled or not present, False otherwise.
+        """
         try:
             # Only check for cookie consent once per session
             if hasattr(self, '_cookie_consent_handled'):
                 return True
                 
-            print("Checking for cookie consent popup...")
+            print("[DEBUG] Checking for cookie consent popup...")
             # Common selectors for cookie consent buttons
             consent_selectors = [
                 "button#onetrust-accept-btn-handler",  # OneTrust
@@ -275,7 +300,7 @@ class ChapelBooking:
                         EC.element_to_be_clickable((By.CSS_SELECTOR if not selector.startswith('//') else By.XPATH, selector))
                     )
                     element.click()
-                    print("Clicked cookie consent button")
+                    print("[DEBUG] Clicked cookie consent button")
                     self._cookie_consent_handled = True
                     return True
                 except:
@@ -286,96 +311,89 @@ class ChapelBooking:
             return True
             
         except Exception as e:
-            print(f"Error handling cookie consent: {str(e)}")
+            print(f"[DEBUG] Error handling cookie consent: {str(e)}")
             return False
 
     def select_court_type(self) -> bool:
-        """Select the court type (e.g., Padel Courts)."""
+        """
+        Select the desired court type (e.g., Padel Courts) using the custom dropdown UI or fallback JS.
+        Returns True if selection is successful, False otherwise.
+        """
+        print("[DEBUG] select_court_type() starting...")
         try:
-            print(f"Attempting to select court type: {self.court_type}")
-            
-            # Quick check for cookie consent
-            if not self.handle_cookie_consent():
-                print("Failed to handle cookie consent")
-                return False
-
-            # Wait for the court type dropdown to be present
-            print("Waiting for court type dropdown...")
+            print(f"[DEBUG] Attempting to select court type: {self.court_type}")
+            # Try to interact with the custom dropdown UI first
             try:
-                # First find the dropdown button that shows the current selection
-                dropdown_button = self.wait.until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, "button.dropdown-toggle[data-toggle='dropdown']"))
+                # Wait for the label or placeholder for the custom dropdown
+                label_elem = self.wait.until(
+                    EC.presence_of_element_located((By.XPATH, "//div[@id='LabelOmrValg' and contains(text(), 'Booking Area')]")
+                ))
+                print("[DEBUG] Found Booking Area label for custom dropdown")
+                # The custom dropdown is likely the next sibling or nearby
+                # Try to find a visible element that can be clicked to open the dropdown
+                dropdown_elem = self.wait.until(
+                    EC.element_to_be_clickable((By.XPATH, "//select[@id='soeg_omraede_placeholder' or @id='soeg_omraede']/following-sibling::*[not(self::select)][1] | //div[contains(@class, 'dropdown') or contains(@class, 'comboplaceholder') or contains(@class, 'show-menu-arrow')]")
+                ))
+                print("[DEBUG] Found custom dropdown element, clicking to open...")
+                dropdown_elem.click()
+                # Wait for the options to appear and select the desired one
+                option_elem = self.wait.until(
+                    EC.element_to_be_clickable((By.XPATH, f"//li[contains(., '{self.court_type}') or contains(text(), '{self.court_type}')] | //span[contains(., '{self.court_type}') or contains(text(), '{self.court_type}')]"))
                 )
-                print("Found court type dropdown button")
-                
-                # Get the current selection
-                current_selection = dropdown_button.find_element(By.CSS_SELECTOR, "span.filter-option.pull-left").text
-                print(f"Current selection: {current_selection}")
-                
-                # If already selected, no need to change
-                if current_selection == self.court_type:
-                    print("Correct court type already selected")
-                    return True
-                
-                # Click the dropdown to open it
-                dropdown_button.click()
-                print("Clicked dropdown button")
-                
-                # Wait for dropdown menu to appear and find the correct option
-                dropdown_menu = self.wait.until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "ul.dropdown-menu"))
-                )
-                
-                # Find the specific court type option
-                court_option = dropdown_menu.find_element(
-                    By.XPATH, f"//span[contains(text(), '{self.court_type}')]"
-                )
-                print(f"Found {self.court_type} option")
-                
-                # Click the option
-                court_option.click()
-                print(f"Selected {self.court_type}")
-                
-                # Wait for the page to update
-                time.sleep(1)
+                print(f"[DEBUG] Found custom dropdown option for {self.court_type}, clicking...")
+                option_elem.click()
+                print(f"[DEBUG] Selected court type via custom dropdown: {self.court_type}")
                 return True
-                
-            except TimeoutException:
-                print("Timeout waiting for court type dropdown")
+            except Exception as e:
+                print(f"[DEBUG] Custom dropdown UI interaction failed: {e}. Falling back to JS method.")
+            # Fallback: Use JS to set value and trigger onchange (may fail if sende is not defined)
+            select_elem = self.wait.until(
+                EC.presence_of_element_located((By.ID, "soeg_omraede"))
+            )
+            print("[DEBUG] Found <select id='soeg_omraede'> element (fallback)")
+            court_type_map = {
+                "Squash Courts": "1",
+                "Indoor Tennis": "2",
+                "Outdoor Tennis": "3",
+                "Grass Courts": "4",
+                "Padel Courts": "9"
+            }
+            value = court_type_map.get(self.court_type)
+            if not value:
+                print(f"[DEBUG] Unknown court type: {self.court_type}")
                 return False
-            except NoSuchElementException:
-                print(f"Could not find {self.court_type} option in dropdown")
-                return False
-            
+            js = (
+                "var sel = document.getElementById('soeg_omraede');"
+                f"if (sel) {{ sel.value = '{value}'; if (sel.onchange) sel.onchange(); }}"
+            )
+            self.driver.execute_script(js)
+            print(f"[DEBUG] Set <select id='soeg_omraede'> value to {value} and triggered onchange via JS (fallback)")
+            current_value = self.driver.execute_script("return document.getElementById('soeg_omraede').value;")
+            print(f"[DEBUG] Current value after JS: {current_value}")
+            print("[DEBUG] select_court_type() completed (fallback).")
+            return current_value == value
         except Exception as e:
-            print(f"Error selecting court type: {str(e)}")
+            print(f"[DEBUG] Error selecting court type via custom dropdown or JS: {e}")
             return False
     
     def check_availability(self, date: str, start_time: str, end_time: str) -> List[str]:
         """
-        Check court availability for a specific date and time range.
-        
-        Args:
-            date: Date in format 'YYYY-MM-DD'
-            start_time: Start time in format 'HH:MM'
-            end_time: End time in format 'HH:MM'
-            
-        Returns:
-            List of available court numbers
+        Check for available courts on a given date and time range.
+        Returns a list of available court numbers.
         """
         available_courts = []
         
         try:
-            print(f"Checking availability for date: {date}, time: {start_time}-{end_time}")
+            print(f"[DEBUG] Checking availability for date: {date}, time: {start_time}-{end_time}")
             # Navigate to the date
             date_obj = datetime.strptime(date, "%Y-%m-%d")
             formatted_date = date_obj.strftime("%d-%m-%Y")
             
             # TODO: Implement date navigation
-            print("Looking for available courts...")
+            print("[DEBUG] Looking for available courts...")
             # Check each court's availability
             courts = self.driver.find_elements(By.CLASS_NAME, "court-slot")
-            print(f"Found {len(courts)} court slots")
+            print(f"[DEBUG] Found {len(courts)} court slots")
             
             for court in courts:
                 try:
@@ -383,30 +401,23 @@ class ChapelBooking:
                     if start_time in time_slot.text and "available" in court.get_attribute("class"):
                         court_number = court.find_element(By.CLASS_NAME, "court-number").text
                         available_courts.append(court_number)
-                        print(f"Found available court: {court_number}")
+                        print(f"[DEBUG] Found available court: {court_number}")
                 except NoSuchElementException:
                     continue
         
         except Exception as e:
-            print(f"Error checking availability: {str(e)}")
+            print(f"[DEBUG] Error checking availability: {str(e)}")
         
-        print(f"Available courts: {available_courts}")
+        print(f"[DEBUG] Available courts: {available_courts}")
         return available_courts
     
     def make_booking(self, date: str, start_time: str, court_number: str) -> bool:
         """
-        Make a booking for a specific court.
-        
-        Args:
-            date: Date in format 'YYYY-MM-DD'
-            start_time: Start time in format 'HH:MM'
-            court_number: Court number to book
-            
-        Returns:
-            Boolean indicating if booking was successful
+        Attempt to make a booking for a specific court, date, and time.
+        Returns True if booking is successful, False otherwise.
         """
         try:
-            print(f"Attempting to book court {court_number} on {date} at {start_time}")
+            print(f"[DEBUG] Attempting to book court {court_number} on {date} at {start_time}")
             # Find and click the available court slot
             court_slot = self.driver.find_element(
                 By.XPATH,
@@ -414,40 +425,42 @@ class ChapelBooking:
                 f"[contains(@data-time, '{start_time}')]"
             )
             court_slot.click()
-            print("Court slot selected")
+            print("[DEBUG] Court slot selected")
             
             # Add players based on configuration
             if self.use_visitors:
-                print("Using visitor option")
+                print("[DEBUG] Using visitor option")
                 self._add_visitors()
             else:
-                print(f"Adding {len(self.player_names)} players")
+                print(f"[DEBUG] Adding {len(self.player_names)} players")
                 self._add_players()
             
             # Confirm booking
-            print("Looking for confirm booking button...")
+            print("[DEBUG] Looking for confirm booking button...")
             confirm_btn = self.wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "button.confirm-booking, button:contains('Confirm Booking')"))
             )
             confirm_btn.click()
             
             # Wait for success message
-            print("Waiting for booking confirmation...")
+            print("[DEBUG] Waiting for booking confirmation...")
             success_msg = self.wait.until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, ".booking-success, .success-message"))
             )
-            print("Booking successful!")
+            print("[DEBUG] Booking successful!")
             return True
             
         except Exception as e:
-            print(f"Error making booking: {str(e)}")
+            print(f"[DEBUG] Error making booking: {str(e)}")
             return False
     
     def _add_players(self):
-        """Add predefined players to the booking."""
+        """
+        Internal helper to add named players to the booking.
+        """
         try:
             for player in self.player_names:
-                print(f"Adding player: {player}")
+                print(f"[DEBUG] Adding player: {player}")
                 add_player_btn = self.wait.until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, "button.add-player, button:contains('Add Player')"))
                 )
@@ -459,7 +472,7 @@ class ChapelBooking:
                 player_search.send_keys(player)
                 
                 # Select the player from results
-                print(f"Selecting player '{player}' from results")
+                print(f"[DEBUG] Selecting player '{player}' from results")
                 player_option = self.wait.until(
                     EC.element_to_be_clickable((By.XPATH, f"//li[contains(text(), '{player}')]"))
                 )
@@ -467,145 +480,121 @@ class ChapelBooking:
                 time.sleep(0.5)  # Wait for selection to register
         
         except Exception as e:
-            print(f"Error adding players: {str(e)}")
+            print(f"[DEBUG] Error adding players: {str(e)}")
     
     def _add_visitors(self):
-        """Add visitors to the booking."""
+        """
+        Internal helper to add visitors to the booking if enabled.
+        """
         try:
-            print("Adding visitors to booking")
+            print("[DEBUG] Adding visitors to booking")
             visitor_btn = self.wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "button.add-visitor, button:contains('Add Visitor')"))
             )
             visitor_btn.click()
             
             # Confirm visitor selection
-            print("Confirming visitor selection")
+            print("[DEBUG] Confirming visitor selection")
             confirm_visitor_btn = self.wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "button.confirm-visitors, button:contains('Confirm Visitors')"))
             )
             confirm_visitor_btn.click()
             
         except Exception as e:
-            print(f"Error adding visitors: {str(e)}")
+            print(f"[DEBUG] Error adding visitors: {str(e)}")
     
     def close(self):
-        """Close the browser session."""
+        """
+        Close the Selenium browser session.
+        """
         if self.driver:
-            print("Closing browser session")
+            print("[DEBUG] Closing browser session")
             self.driver.quit()
 
-    def select_date(self, target_date: str) -> bool:
-        """Select a date in the calendar.
-        
-        Args:
-            target_date: Date in DD-MM-YYYY format
+    def select_date(self, date_str: str) -> bool:
         """
+        Select a date using the jQuery UI Datepicker widget.
+        Clicks the calendar button, navigates to the correct month/year, selects the day,
+        and verifies the input value. Returns True if successful, False otherwise.
+        """
+        print(f"[DEBUG] Attempting to select date: {date_str}")
         try:
-            print(f"\nAttempting to select date: {target_date}")
-            
-            # Find the date input field
-            date_input = self.wait.until(
-                EC.presence_of_element_located((By.ID, "banedato"))
+            # 1. Click the calendar button to open the datepicker
+            calendar_btn = self.wait.until(
+                EC.element_to_be_clickable((By.CLASS_NAME, "ui-datepicker-trigger"))
             )
-            print("Found date input field")
-            
-            # Get current selected date before clicking
-            current_date = date_input.get_attribute('value')
-            print(f"Current date: {current_date}")
-            
-            # Parse dates
-            target_day, target_month, target_year = map(int, target_date.split('-'))
-            current_day, current_month, current_year = map(int, current_date.split('-'))
-            
-            # If already on correct date, no need to change
-            if current_date == target_date:
-                print("Already on correct date")
-                return True
-            
-            # Click to open the datepicker
-            date_input.click()
-            print("Clicked date input to open datepicker")
-            
-            # Wait for datepicker to be visible
+            calendar_btn.click()
+            print("[DEBUG] Clicked calendar button to open datepicker")
+
+            # 2. Wait for the datepicker widget to appear
             self.wait.until(
-                EC.presence_of_element_located((By.CLASS_NAME, "ui-datepicker-calendar"))
+                EC.visibility_of_element_located((By.ID, "ui-datepicker-div"))
             )
-            
-            # Calculate how many months to move forward/backward
-            months_diff = (target_year - current_year) * 12 + (target_month - current_month)
-            
-            if months_diff != 0:
-                # Find month navigation buttons
-                if months_diff > 0:
-                    print(f"Moving forward {months_diff} months")
-                    for _ in range(months_diff):
-                        next_button = self.wait.until(
-                            EC.element_to_be_clickable((By.CSS_SELECTOR, ".ui-datepicker-next"))
-                        )
-                        next_button.click()
-                        time.sleep(0.2)  # Small delay between clicks
+            print("[DEBUG] Datepicker widget is visible")
+
+            # 3. Parse the target date
+            target_day, target_month, target_year = map(int, date_str.split('-'))
+
+            # 4. Navigate to the correct month/year
+            import calendar
+            while True:
+                month_elem = self.driver.find_element(By.CLASS_NAME, "ui-datepicker-month")
+                year_elem = self.driver.find_element(By.CLASS_NAME, "ui-datepicker-year")
+                current_month = month_elem.text
+                current_year = int(year_elem.text)
+                current_month_num = list(calendar.month_name).index(current_month)
+                print(f"[DEBUG] Datepicker showing: {current_month} {current_year}")
+                if current_year == target_year and current_month_num == target_month:
+                    break
+                elif (current_year, current_month_num) < (target_year, target_month):
+                    next_btn = self.driver.find_element(By.CLASS_NAME, "ui-datepicker-next")
+                    next_btn.click()
+                    print("[DEBUG] Clicked next month")
                 else:
-                    print(f"Moving backward {abs(months_diff)} months")
-                    for _ in range(abs(months_diff)):
-                        prev_button = self.wait.until(
-                            EC.element_to_be_clickable((By.CSS_SELECTOR, ".ui-datepicker-prev"))
-                        )
-                        prev_button.click()
-                        time.sleep(0.2)
-            
-            # Wait for the calendar to update
-            time.sleep(0.5)
-            
-            # Find and click the target day
-            day_selectors = [
-                f"//a[text()='{target_day}']",
-                f"//td[@data-handler='selectDay']/a[text()='{target_day}']",
-                f"//td[not(contains(@class, 'ui-datepicker-other-month'))]/a[text()='{target_day}']"
-            ]
-            
-            day_element = None
-            for selector in day_selectors:
-                try:
-                    day_element = self.wait.until(
-                        EC.element_to_be_clickable((By.XPATH, selector))
-                    )
-                    if day_element:
-                        break
-                except:
-                    continue
-            
-            if not day_element:
-                print(f"Could not find day {target_day}")
-                return False
-            
-            # Click the day
-            day_element.click()
-            print(f"Clicked day {target_day}")
-            
-            # Wait for the date to be updated and verify
-            time.sleep(0.5)  # Wait for any animations/updates
-            
-            # Get fresh reference to input
-            date_input = self.wait.until(
-                EC.presence_of_element_located((By.ID, "banedato"))
+                    prev_btn = self.driver.find_element(By.CLASS_NAME, "ui-datepicker-prev")
+                    prev_btn.click()
+                    print("[DEBUG] Clicked previous month")
+                time.sleep(0.2)
+
+            # 5. Click the target day
+            day_xpath = f"//a[text()='{target_day}']"
+            day_elem = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, day_xpath))
             )
-            selected_date = date_input.get_attribute('value')
-            
-            if selected_date == target_date:
-                print(f"Successfully selected date: {selected_date}")
+            day_elem.click()
+            print(f"[DEBUG] Clicked day {target_day}")
+
+            # 6. Verify the input value
+            date_input = self.driver.find_element(By.ID, "banedato")
+            selected_date = date_input.get_attribute("value")
+            print(f"[DEBUG] Input value after selection: {selected_date}")
+            if selected_date == date_str:
+                print(f"[DEBUG] Successfully selected date: {selected_date}")
                 return True
             else:
-                print(f"Date selection failed. Current value: {selected_date}")
+                print(f"[DEBUG] Date selection failed. Input value: {selected_date}")
                 return False
-            
+
         except Exception as e:
-            print(f"Error selecting date: {str(e)}")
+            print(f"[DEBUG] Error selecting date: {e}")
             return False
 
+    def select_date_helper(self, date_str: str) -> bool:
+        """
+        (Deprecated/unused) Placeholder for alternate date selection logic.
+        """
+        # Implementation of the helper method to select a date
+        # This method should return True if the date is successfully selected, False otherwise
+        # This is a placeholder and should be implemented based on the actual implementation
+        return False
+
     def enter_players(self) -> bool:
-        """Enter player names in the booking modal using the provided player list, handling errors and ensuring all fields are filled. Never retry a rejected player for any slot."""
+        """
+        Enter all player names into the booking form.
+        Returns True if all players are entered successfully, False otherwise.
+        """
         try:
-            print("\nWaiting for player entry modal...")
+            print("[DEBUG]\nWaiting for player entry modal...")
             self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='medspiller']")))
             used_names = set()
             rejected_names = set()
@@ -621,22 +610,22 @@ class ChapelBooking:
                     self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, input_selector)))
                     input_field = self.driver.find_element(By.CSS_SELECTOR, input_selector)
                 except Exception as e:
-                    print(f"Could not find input field for Opponent {idx+1}: {e}")
+                    print(f"[DEBUG] Could not find input field for Opponent {idx+1}: {e}")
                     return False
-                print(f"Entering player for Opponent {idx+1}...")
+                print(f"[DEBUG] Entering player for Opponent {idx+1}...")
                 player_found = False
                 for name in self.player_names:
                     if name in used_names or name in rejected_names:
                         continue
                     input_field.clear()
                     input_field.send_keys(name)
-                    print(f"  Trying player name: {name}")
+                    print(f"[DEBUG]  Trying player name: {name}")
                     try:
                         search_btn = self.driver.find_element(By.ID, search_id)
                         self.driver.execute_script("arguments[0].click();", search_btn)
-                        print("  Clicked Search button")
+                        print("[DEBUG]  Clicked Search button")
                     except Exception as e:
-                        print(f"  Could not find/click Search button: {e}")
+                        print(f"[DEBUG]  Could not find/click Search button: {e}")
                         continue
                     time.sleep(0.5)
                     # After DOM update, check for error message in the modal
@@ -646,19 +635,19 @@ class ChapelBooking:
                         error_found = False
                         for err in error_divs:
                             if err.is_displayed() and err.text.strip():
-                                print(f"    Error: {err.text.strip()}")
+                                print(f"[DEBUG]    Error: {err.text.strip()}")
                                 error_found = True
                                 break
                         if error_found:
                             rejected_names.add(name)
                             continue  # Try next player name
                     except Exception as e:
-                        print(f"    Could not check for error message: {e}")
+                        print(f"[DEBUG]    Could not check for error message: {e}")
                     # Re-find the input after DOM update
                     try:
                         input_field = self.driver.find_element(By.CSS_SELECTOR, input_selector)
                     except Exception as e:
-                        print(f"    Could not re-find input field: {e}")
+                        print(f"[DEBUG]    Could not re-find input field: {e}")
                         continue
                     try:
                         tooltip = None
@@ -668,34 +657,34 @@ class ChapelBooking:
                             tooltip = parent.find_element(By.CSS_SELECTOR, "span.tooltip_ajax")
                             tooltip_text = tooltip.text.strip()
                             if tooltip_text:
-                                print(f"    Tooltip: {tooltip_text}")
+                                print(f"[DEBUG]    Tooltip: {tooltip_text}")
                         except:
                             tooltip_text = ""
                         if input_field.get_attribute('value') and not tooltip_text:
-                            print(f"  Player {name} accepted for Opponent {idx+1}")
+                            print(f"[DEBUG]  Player {name} accepted for Opponent {idx+1}")
                             used_names.add(name)
                             player_found = True
                             break
                         else:
-                            print(f"  Player {name} not accepted (tooltip or empty value)")
+                            print(f"[DEBUG]  Player {name} not accepted (tooltip or empty value)")
                             rejected_names.add(name)
                     except Exception as e:
-                        print(f"  Error checking player search result: {e}")
+                        print(f"[DEBUG]  Error checking player search result: {e}")
                         rejected_names.add(name)
                 if not player_found:
-                    print(f"Could not find a valid player for Opponent {idx+1}")
+                    print(f"[DEBUG] Could not find a valid player for Opponent {idx+1}")
                     return False
             # After loop, check that all player fields are filled
             for input_name, _ in field_info:
                 try:
                     input_field = self.driver.find_element(By.CSS_SELECTOR, f"input[name='{input_name}']")
                     if not input_field.get_attribute('value'):
-                        print(f"Player field {input_name} was not filled successfully.")
+                        print(f"[DEBUG] Player field {input_name} was not filled successfully.")
                         return False
                 except Exception as e:
-                    print(f"Could not find input field {input_name} for final check: {e}")
+                    print(f"[DEBUG] Could not find input field {input_name} for final check: {e}")
                     return False
-            print("All players entered successfully!")
+            print("[DEBUG] All players entered successfully!")
             # Find and click the 'Add to basket' button
             try:
                 # Wait for the button to appear anywhere in the DOM
@@ -710,21 +699,21 @@ class ChapelBooking:
                 if add_btn:
                     self.driver.execute_script("arguments[0].scrollIntoView();", add_btn)
                     self.driver.execute_script("arguments[0].click();", add_btn)
-                    print("Clicked 'Add to basket' button")
+                    print("[DEBUG] Clicked 'Add to basket' button")
                     # Wait for the new page to load by waiting for the checkbox or 'Your Basket' heading
                     try:
                         self.wait.until(
                             EC.presence_of_element_located((By.ID, "acc_beting"))
                         )
-                        print("'Your Basket' page loaded and checkbox present.")
+                        print("[DEBUG] 'Your Basket' page loaded and checkbox present.")
                     except Exception as e:
-                        print(f"Checkbox or basket page did not load: {e}")
+                        print(f"[DEBUG] Checkbox or basket page did not load: {e}")
                         return False
                 else:
-                    print("Could not find 'Add to basket' button")
+                    print("[DEBUG] Could not find 'Add to basket' button")
                     return False
             except Exception as e:
-                print(f"Error clicking 'Add to basket' button: {e}")
+                print(f"[DEBUG] Error clicking 'Add to basket' button: {e}")
                 return False
 
             # --- NEW: Handle Terms & Conditions and Confirm Booking ---
@@ -733,21 +722,21 @@ class ChapelBooking:
                 tnc_checkbox = self.wait.until(
                     EC.presence_of_element_located((By.ID, "acc_beting"))
                 )
-                print("Located checkbox by ID 'acc_beting'.")
+                print("[DEBUG] Located checkbox by ID 'acc_beting'.")
                 # Step 1: Try clicking the label
                 try:
                     label = tnc_checkbox.find_element(By.XPATH, "./ancestor::label")
                     self.driver.execute_script("arguments[0].scrollIntoView();", label)
                     label.click()
-                    print("Ticked Terms & Conditions checkbox by clicking label")
+                    print("[DEBUG] Ticked Terms & Conditions checkbox by clicking label")
                 except Exception as e1:
-                    print(f"Label click failed: {e1}. Trying JS set...")
+                    print(f"[DEBUG] Label click failed: {e1}. Trying JS set...")
                 # Check state after label click
                 try:
                     is_checked = self.driver.execute_script("return arguments[0].checked;", tnc_checkbox)
-                    print(f"Checkbox checked state after label click: {is_checked}")
+                    print(f"[DEBUG] Checkbox checked state after label click: {is_checked}")
                 except Exception as e:
-                    print(f"Error checking state after label click: {e}")
+                    print(f"[DEBUG] Error checking state after label click: {e}")
                 # Step 2: Use JS to set checked and trigger onclick if not checked
                 try:
                     is_checked = self.driver.execute_script("return arguments[0].checked;", tnc_checkbox)
@@ -756,40 +745,40 @@ class ChapelBooking:
                             "arguments[0].checked = true; arguments[0].onclick && arguments[0].onclick();",
                             tnc_checkbox
                         )
-                        print("Ticked Terms & Conditions checkbox via JS.")
+                        print("[DEBUG] Ticked Terms & Conditions checkbox via JS.")
                         is_checked = self.driver.execute_script("return arguments[0].checked;", tnc_checkbox)
-                        print(f"Checkbox checked state after JS set: {is_checked}")
+                        print(f"[DEBUG] Checkbox checked state after JS set: {is_checked}")
                 except Exception as e:
-                    print(f"Error during JS set: {e}")
+                    print(f"[DEBUG] Error during JS set: {e}")
                 # Step 3: Try direct JS click and event dispatch if still not checked
                 try:
                     is_checked = self.driver.execute_script("return arguments[0].checked;", tnc_checkbox)
                     if not is_checked:
-                        print("Checkbox is still not checked after label/JS. Trying direct JS click and event dispatch...")
+                        print("[DEBUG] Checkbox is still not checked after label/JS. Trying direct JS click and event dispatch...")
                         self.driver.execute_script(
                             "arguments[0].click(); var evt = document.createEvent('HTMLEvents'); evt.initEvent('change', true, true); arguments[0].dispatchEvent(evt);",
                             tnc_checkbox
                         )
                         is_checked = self.driver.execute_script("return arguments[0].checked;", tnc_checkbox)
-                        print(f"Checkbox checked state after direct JS click: {is_checked}")
+                        print(f"[DEBUG] Checkbox checked state after direct JS click: {is_checked}")
                 except Exception as e:
-                    print(f"Error during direct JS click: {e}")
+                    print(f"[DEBUG] Error during direct JS click: {e}")
                 # Final check and debug output
                 try:
                     is_checked = self.driver.execute_script("return arguments[0].checked;", tnc_checkbox)
                     if not is_checked:
-                        print("Checkbox is still not checked after all attempts. Printing HTML for inspection.")
+                        print("[DEBUG] Checkbox is still not checked after all attempts. Printing HTML for inspection.")
                         try:
-                            print("Checkbox outerHTML:", tnc_checkbox.get_attribute('outerHTML'))
+                            print("[DEBUG] Checkbox outerHTML:", tnc_checkbox.get_attribute('outerHTML'))
                             parent = tnc_checkbox.find_element(By.XPATH, "..")
-                            print("Parent outerHTML:", parent.get_attribute('outerHTML'))
+                            print("[DEBUG] Parent outerHTML:", parent.get_attribute('outerHTML'))
                         except Exception as e2:
-                            print(f"Error printing checkbox HTML: {e2}")
+                            print(f"[DEBUG] Error printing checkbox HTML: {e2}")
                         return False
                 except Exception as e:
-                    print(f"Error during final checked state check: {e}")
+                    print(f"[DEBUG] Error during final checked state check: {e}")
             except Exception as e:
-                print(f"Could not tick Terms & Conditions checkbox: {e}")
+                print(f"[DEBUG] Could not tick Terms & Conditions checkbox: {e}")
                 return False
             try:
                 # Wait for the Confirm Booking button to appear
@@ -804,30 +793,30 @@ class ChapelBooking:
                 if confirm_btn:
                     self.driver.execute_script("arguments[0].scrollIntoView();", confirm_btn)
                     self.driver.execute_script("arguments[0].click();", confirm_btn)
-                    print("Clicked 'Confirm Booking' button")
+                    print("[DEBUG] Clicked 'Confirm Booking' button")
                 else:
-                    print("Could not find 'Confirm Booking' button")
+                    print("[DEBUG] Could not find 'Confirm Booking' button")
                     return False
             except Exception as e:
-                print(f"Error clicking 'Confirm Booking' button: {e}")
+                print(f"[DEBUG] Error clicking 'Confirm Booking' button: {e}")
                 return False
             # Optionally, wait for a final booking confirmation message
             try:
                 self.wait.until(
                     EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Booking confirmed') or contains(text(), 'bekræftet') or contains(text(), 'Reservation') or contains(text(), 'Tak for din booking') or contains(text(), 'Thank you for your booking') or contains(text(), 'Confirmed') or contains(text(), 'confirmed') or contains(text(), 'Reservation complete') or contains(text(), 'Reservation successful') or contains(text(), 'Bookingen er gennemført') or contains(text(), 'Bookingen er bekræftet') ]"))
                 )
-                print("Final booking confirmation detected!")
+                print("[DEBUG] Final booking confirmation detected!")
             except Exception as e:
-                print(f"Final booking confirmation not detected: {e}")
+                print(f"[DEBUG] Final booking confirmation not detected: {e}")
             try:
                 # Wait for the receipt page to load after confirming booking
-                print("Waiting for receipt page after confirming booking...")
+                print("[DEBUG] Waiting for receipt page after confirming booking...")
                 # Try to detect a receipt heading or booking reference
                 receipt_xpath = "//*[contains(text(), 'Receipt') or contains(text(), 'Booking reference') or contains(text(), 'Tak for din booking') or contains(text(), 'Thank you for your booking') or contains(text(), 'bekræftet') or contains(text(), 'Reservation') or contains(text(), 'Bookingen er gennemført') or contains(text(), 'Bookingen er bekræftet')]"
                 self.wait.until(
                     EC.presence_of_element_located((By.XPATH, receipt_xpath))
                 )
-                print("SUCCESS: Booking completed and receipt page detected!")
+                print("[DEBUG] SUCCESS: Booking completed and receipt page detected!")
                 # Optionally, print the booking reference or receipt details
                 try:
                     receipt_elements = self.driver.find_elements(By.XPATH, receipt_xpath)
@@ -836,40 +825,43 @@ class ChapelBooking:
                             print("--- Receipt/Confirmation Text ---")
                             print(elem.text)
                 except Exception as e:
-                    print(f"Could not print receipt details: {e}")
+                    print(f"[DEBUG] Could not print receipt details: {e}")
             except Exception as e:
-                print(f"WARNING: Receipt page or confirmation not detected: {e}")
+                print(f"[DEBUG] WARNING: Receipt page or confirmation not detected: {e}")
             return True
         except Exception as e:
-            print(f"Error during player entry: {e}")
+            print(f"[DEBUG] Error during player entry: {e}")
             return False
 
     def book_court(self, target_time: str = "21:00") -> bool:
-        """Attempt to book a court at the specified time (default 21:00)."""
+        """
+        Main booking flow: finds available courts at the target time, enters players, adds to basket,
+        accepts terms, and confirms the booking. Returns True if booking is successful.
+        """
         try:
-            print(f"\nLooking for available courts at {target_time}...")
+            print(f"[DEBUG]\nLooking for available courts at {target_time}...")
             # Wait for the booking elements to be present
             xpath = f"//span[contains(@class, 'banefelt') and contains(@class, 'btn_ledig') and contains(@class, 'link') and contains(., '{target_time}') and contains(., '- 22:00')]"
             self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
             booking_spans = self.driver.find_elements(By.XPATH, xpath)
             if not booking_spans:
-                print(f"No available courts at {target_time}")
+                print(f"[DEBUG] No available courts at {target_time}")
                 return False
-            print(f"Found {len(booking_spans)} available court(s) at {target_time}")
+            print(f"[DEBUG] Found {len(booking_spans)} available court(s) at {target_time}")
 
             # Try to book the first available court
             btn = booking_spans[0]
             try:
                 self.driver.execute_script("arguments[0].scrollIntoView();", btn)
                 self.driver.execute_script("arguments[0].click();", btn)
-                print("Clicked booking span for court")
+                print("[DEBUG] Clicked booking span for court")
             except Exception as e:
-                print(f"Failed to click booking span: {e}")
+                print(f"[DEBUG] Failed to click booking span: {e}")
                 return False
 
             # Wait for player entry modal and enter players
             if not self.enter_players():
-                print("Player entry failed or not all players could be entered.")
+                print("[DEBUG] Player entry failed or not all players could be entered.")
                 return False
 
             # Wait for confirmation dialog or booking success indicator
@@ -877,34 +869,114 @@ class ChapelBooking:
                 self.wait.until(
                     EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Booking confirmed') or contains(text(), 'bekræftet') or contains(text(), 'Reservation') or contains(text(), 'Tak for din booking') or contains(text(), 'Thank you for your booking')]"))
                 )
-                print("Booking confirmed!")
+                print("[DEBUG] Booking confirmed!")
                 return True
             except Exception as e:
-                print(f"Booking may not have been confirmed: {e}")
+                print(f"[DEBUG] Booking may not have been confirmed: {e}")
                 return False
         except Exception as e:
-            print(f"Error during booking: {e}")
+            print(f"[DEBUG] Error during booking: {e}")
             return False
 
 def main():
+    """
+    Main entry point for the booking script.
+    Initializes ChapelBooking, performs login, court type selection, date selection, and booking.
+    """
+    print("[DEBUG] main() starting...")
     chapel = ChapelBooking()
     try:
+        print("[DEBUG] Calling login()...")
         if chapel.login():
+            print("[DEBUG] login() returned True. Taking screenshot after login...")
+            try:
+                chapel.driver.save_screenshot("after_login.png")
+                print("[DEBUG] Saved screenshot: after_login.png")
+            except Exception as e:
+                print(f"[DEBUG] Could not save screenshot after login: {e}")
+            try:
+                with open("after_login.html", "w", encoding="utf-8") as f:
+                    f.write(chapel.driver.page_source)
+                print("[DEBUG] Saved HTML: after_login.html")
+            except Exception as e:
+                print(f"[DEBUG] Could not save HTML after login: {e}")
+            print("[DEBUG] Refreshing page after login to ensure dropdown is populated...")
+            chapel.driver.refresh()
+            print("[DEBUG] Page refreshed. Waiting for court type dropdown to be populated...")
+            def dropdown_has_option(driver):
+                try:
+                    select_elem = driver.find_element(By.ID, "soeg_omraede")
+                    options = [o.text.strip() for o in select_elem.find_elements(By.TAG_NAME, "option") if o.text.strip()]
+                    print(f"[DEBUG] Dropdown options after refresh: {options}")
+                    return any("Padel Courts" in o for o in options)
+                except Exception as e:
+                    print(f"[DEBUG] Exception while checking dropdown options: {e}")
+                    return False
+            WebDriverWait(chapel.driver, 20).until(dropdown_has_option)
+            print("[DEBUG] Court type dropdown is now populated. Proceeding to court type selection...")
+            print("[DEBUG] Calling select_court_type()...")
             if chapel.select_court_type():
-                # Test date selection
-                if chapel.select_date("18-06-2025"):
-                    print("Date selection successful!")
-                    chapel.book_court("21:00")
+                print("[DEBUG] select_court_type() returned True. Calling select_date()...")
+                print("[DEBUG] Pausing for 60 seconds before date selection for VNC inspection...")
+                time.sleep(60)
+                print("[DEBUG] Resuming script after VNC inspection pause.")
+                print("[DEBUG]\nAttempting to select date: 18-06-2025")
+                max_retries = 3
+                for attempt in range(1, max_retries + 1):
+                    print(f"[DEBUG] Date selection attempt {attempt}...")
+                    try:
+                        if chapel.select_date("18-06-2025"):
+                            print("[DEBUG] Date selection successful! Calling book_court()...")
+                            chapel.book_court("21:00")
+                            break
+                        else:
+                            print(f"[DEBUG] Date selection failed on attempt {attempt}.")
+                    except Exception as e:
+                        print(f"[DEBUG] Exception during date selection attempt {attempt}: {e}")
+                        try:
+                            chapel.driver.save_screenshot(f"date_selection_fail_attempt{attempt}.png")
+                            print(f"[DEBUG] Saved screenshot: date_selection_fail_attempt{attempt}.png")
+                        except Exception as se:
+                            print(f"[DEBUG] Could not save screenshot: {se}")
+                        try:
+                            with open(f"date_selection_fail_attempt{attempt}.html", "w", encoding="utf-8") as f:
+                                f.write(chapel.driver.page_source)
+                            print(f"[DEBUG] Saved HTML: date_selection_fail_attempt{attempt}.html")
+                        except Exception as he:
+                            print(f"[DEBUG] Could not save HTML: {he}")
+                    if attempt < max_retries:
+                        print(f"[DEBUG] Reloading page before retrying date selection (attempt {attempt + 1})...")
+                        chapel.driver.refresh()
+                        # Wait for dropdown to be repopulated
+                        def dropdown_has_option(driver):
+                            try:
+                                select_elem = driver.find_element(By.ID, "soeg_omraede")
+                                options = [o.text.strip() for o in select_elem.find_elements(By.TAG_NAME, "option") if o.text.strip()]
+                                print(f"[DEBUG] Dropdown options after refresh: {options}")
+                                return any("Padel Courts" in o for o in options)
+                            except Exception as e:
+                                print(f"[DEBUG] Exception while checking dropdown options: {e}")
+                                return False
+                        WebDriverWait(chapel.driver, 20).until(dropdown_has_option)
+                        print("[DEBUG] Court type dropdown is now populated after refresh. Reselecting court type...")
+                        chapel.select_court_type()
+                        print("[DEBUG] Pausing for 2 seconds after refresh before retrying date selection...")
+                        time.sleep(2)
                 else:
-                    print("Date selection failed!")
+                    print("[DEBUG] Date selection failed after all retries!")
             else:
-                print("Court type selection failed!")
+                try:
+                    chapel.driver.save_screenshot("court_type_dropdown_not_found.png")
+                    print("[DEBUG] Saved screenshot: court_type_dropdown_not_found.png")
+                except Exception as e:
+                    print(f"[DEBUG] Could not save screenshot after court type dropdown failure: {e}")
+                print("[DEBUG] Court type selection failed!")
         else:
-            print("Login failed")
+            print("[DEBUG] login() returned False. Login failed.")
     except Exception as e:
-        print(f"Error during test: {str(e)}")
+        print(f"[DEBUG] Error during test: {str(e)}")
     finally:
-        print("Closing browser session")
+        print("[DEBUG] Closing browser session")
         chapel.close()
 
 if __name__ == "__main__":
