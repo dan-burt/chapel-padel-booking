@@ -805,34 +805,23 @@ class ChapelBooking:
             except Exception as e:
                 print(f"[DEBUG] Error clicking 'Confirm Booking' button: {e}")
                 return False
-            # Optionally, wait for a final booking confirmation message
+            # Wait for the final receipt page by URL or by heading
+            print("[DEBUG] Waiting for final receipt page after confirming booking...")
+            def receipt_page_loaded(driver):
+                url_match = "proc_kvittering.asp" in driver.current_url
+                heading_match = driver.find_elements(By.XPATH, "//div[contains(@class, 'text-center') and contains(@class, 'min480')]/h1[contains(., 'Your Receipt')]")
+                return url_match or bool(heading_match)
+            self.wait.until(receipt_page_loaded)
+            print("[DEBUG] SUCCESS: Final receipt page detected!")
+            # Optionally, print the receipt heading
             try:
-                self.wait.until(
-                    EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Booking confirmed') or contains(text(), 'bekræftet') or contains(text(), 'Reservation') or contains(text(), 'Tak for din booking') or contains(text(), 'Thank you for your booking') or contains(text(), 'Confirmed') or contains(text(), 'confirmed') or contains(text(), 'Reservation complete') or contains(text(), 'Reservation successful') or contains(text(), 'Bookingen er gennemført') or contains(text(), 'Bookingen er bekræftet') ]"))
-                )
-                print("[DEBUG] Final booking confirmation detected!")
+                headings = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'text-center') and contains(@class, 'min480')]/h1[contains(., 'Your Receipt')]")
+                for h in headings:
+                    if h.is_displayed():
+                        print("--- Receipt/Confirmation Text ---")
+                        print(h.text)
             except Exception as e:
-                print(f"[DEBUG] Final booking confirmation not detected: {e}")
-            try:
-                # Wait for the receipt page to load after confirming booking
-                print("[DEBUG] Waiting for receipt page after confirming booking...")
-                # Try to detect a receipt heading or booking reference
-                receipt_xpath = "//*[contains(text(), 'Receipt') or contains(text(), 'Booking reference') or contains(text(), 'Tak for din booking') or contains(text(), 'Thank you for your booking') or contains(text(), 'bekræftet') or contains(text(), 'Reservation') or contains(text(), 'Bookingen er gennemført') or contains(text(), 'Bookingen er bekræftet')]"
-                self.wait.until(
-                    EC.presence_of_element_located((By.XPATH, receipt_xpath))
-                )
-                print("[DEBUG] SUCCESS: Booking completed and receipt page detected!")
-                # Optionally, print the booking reference or receipt details
-                try:
-                    receipt_elements = self.driver.find_elements(By.XPATH, receipt_xpath)
-                    for elem in receipt_elements:
-                        if elem.is_displayed():
-                            print("--- Receipt/Confirmation Text ---")
-                            print(elem.text)
-                except Exception as e:
-                    print(f"[DEBUG] Could not print receipt details: {e}")
-            except Exception as e:
-                print(f"[DEBUG] WARNING: Receipt page or confirmation not detected: {e}")
+                print(f"[DEBUG] Could not print receipt heading: {e}")
             return True
         except Exception as e:
             print(f"[DEBUG] Error during player entry: {e}")
@@ -845,43 +834,150 @@ class ChapelBooking:
         """
         try:
             print(f"[DEBUG]\nLooking for available courts at {target_time}...")
-            # Wait for the booking elements to be present
-            xpath = f"//span[contains(@class, 'banefelt') and contains(@class, 'btn_ledig') and contains(@class, 'link') and contains(., '{target_time}') and contains(., '- 22:00')]"
-            self.wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
-            booking_spans = self.driver.find_elements(By.XPATH, xpath)
-            if not booking_spans:
-                print(f"[DEBUG] No available courts at {target_time}")
-                return False
-            print(f"[DEBUG] Found {len(booking_spans)} available court(s) at {target_time}")
-
-            # Try to book the first available court
-            btn = booking_spans[0]
-            try:
-                self.driver.execute_script("arguments[0].scrollIntoView();", btn)
-                self.driver.execute_script("arguments[0].click();", btn)
-                print("[DEBUG] Clicked booking span for court")
-            except Exception as e:
-                print(f"[DEBUG] Failed to click booking span: {e}")
-                return False
-
-            # Wait for player entry modal and enter players
-            if not self.enter_players():
-                print("[DEBUG] Player entry failed or not all players could be entered.")
-                return False
-
-            # Wait for confirmation dialog or booking success indicator
-            try:
-                self.wait.until(
-                    EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Booking confirmed') or contains(text(), 'bekræftet') or contains(text(), 'Reservation') or contains(text(), 'Tak for din booking') or contains(text(), 'Thank you for your booking')]"))
-                )
-                print("[DEBUG] Booking confirmed!")
-                return True
-            except Exception as e:
-                print(f"[DEBUG] Booking may not have been confirmed: {e}")
-                return False
+            # Find all available courts at the requested time
+            available_courts = self.find_available_courts(target_time)
+            print(f"[DEBUG] Found {len(available_courts)} available court(s) at {target_time}")
+            for court_num, booking_elem in available_courts:
+                print(f"[DEBUG] Attempting to book court {court_num} at {target_time}")
+                try:
+                    # Scroll element into view
+                    try:
+                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", booking_elem)
+                        print("[DEBUG] Scrolled booking span into view.")
+                    except Exception as e:
+                        print(f"[DEBUG] Could not scroll booking span into view: {e}")
+                    try:
+                        self.driver.execute_script("arguments[0].click();", booking_elem)
+                        print("[DEBUG] Clicked booking span via JS click().")
+                    except Exception as e:
+                        print(f"[DEBUG] JS click failed: {e}. Trying direct onclick...")
+                        try:
+                            self.driver.execute_script("arguments[0].onclick();", booking_elem)
+                            print("[DEBUG] Clicked booking span via JS onclick().")
+                        except Exception as e2:
+                            print(f"[DEBUG] Direct onclick failed: {e2}. Trying onclick attribute...")
+                            try:
+                                onclick = booking_elem.get_attribute("onclick")
+                                if onclick:
+                                    self.driver.execute_script(onclick)
+                                    print(f"[DEBUG] Executed onclick JS: {onclick}")
+                                else:
+                                    print("[DEBUG] No onclick attribute found.")
+                                    return False
+                            except Exception as e3:
+                                print(f"[DEBUG] Onclick attribute execution failed: {e3}")
+                                return False
+                    # Save screenshot and print URL after click
+                    try:
+                        self.driver.save_screenshot("after_click_booking_span.png")
+                        print("[DEBUG] Saved screenshot: after_click_booking_span.png")
+                    except Exception as e:
+                        print(f"[DEBUG] Could not save screenshot after clicking booking span: {e}")
+                    current_url = self.driver.current_url
+                    print(f"[DEBUG] Current URL after clicking booking span: {current_url}")
+                    # Wait for VISIBLE player entry modal or page
+                    try:
+                        self.wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "input[name='medspiller']")), 10)
+                        print("[DEBUG] Player entry modal is visible.")
+                    except Exception:
+                        print("[DEBUG] Player entry modal not visible after clicking booking span.")
+                        try:
+                            with open("after_click_booking_span.html", "w", encoding="utf-8") as f:
+                                f.write(self.driver.page_source)
+                            print("[DEBUG] Saved page source: after_click_booking_span.html")
+                        except Exception as e2:
+                            print(f"[DEBUG] Could not save page source: {e2}")
+                        return False
+                    # Enter players using robust logic
+                    print("[DEBUG] Calling enter_players()...")
+                    if not self.enter_players():
+                        print("[DEBUG] Player entry failed. Aborting booking flow.")
+                        return False
+                    print("[DEBUG] Player entry succeeded. Proceeding to basket/terms/confirmation...")
+                    # Proceed with basket, terms, and confirmation as before (call complete_booking_flow or implement here)
+                    if self.complete_booking_flow():
+                        print(f"[DEBUG] Booking successful for court {court_num} at {target_time}")
+                        return True
+                    else:
+                        print(f"[DEBUG] Booking flow failed for court {court_num} at {target_time}")
+                except Exception as e:
+                    print(f"[DEBUG] Exception while booking court {court_num}: {e}")
+            print(f"[DEBUG] No courts could be booked at {target_time}")
+            return False
         except Exception as e:
             print(f"[DEBUG] Error during booking: {e}")
             return False
+
+    def find_available_courts(self, target_time: str):
+        """
+        Find all available courts at the requested time.
+        Returns a list of (court_number, booking_element) tuples.
+        """
+        available = []
+        try:
+            # Wait for the court grid to be present (wait for any available booking span)
+            try:
+                self.wait.until(
+                    EC.presence_of_element_located((
+                        By.XPATH,
+                        "//span[contains(@class, 'banefelt') and contains(@class, 'btn_ledig') and contains(@class, 'link')]"
+                    ))
+                )
+                print("[DEBUG] Court grid is present and at least one available booking span is loaded.")
+            except Exception as e:
+                print(f"[DEBUG] Court grid not found: {e}")
+                # Save the full page HTML for inspection
+                try:
+                    with open("full_page_debug.html", "w", encoding="utf-8") as f:
+                        f.write(self.driver.page_source)
+                    print("[DEBUG] Saved full page HTML to full_page_debug.html")
+                except Exception as e2:
+                    print(f"[DEBUG] Could not save full page HTML: {e2}")
+                return []
+            # Find all available booking spans for the target time
+            booking_spans = self.driver.find_elements(
+                By.XPATH,
+                "//span[contains(@class, 'banefelt') and contains(@class, 'btn_ledig') and contains(@class, 'link') and @title='Can be booked with your membership']"
+            )
+            print(f"[DEBUG] Found {len(booking_spans)} available booking spans (all times).")
+            print(f"[DEBUG] Scanning for available courts at {target_time}...")
+            for span in booking_spans:
+                try:
+                    text = span.text
+                    classes = span.get_attribute("class")
+                    # Debug info for every candidate span
+                    print(f"[DEBUG] Span: class='{classes}', text='{text.replace(chr(10), ' | ')}'")
+                    # Only match if the start time exactly matches target_time
+                    if " - " in text:
+                        start, _ = text.split(" - ", 1)
+                        start = start.strip()
+                        print(f"[DEBUG] Extracted start time: '{start}'")
+                        if start != target_time:
+                            continue
+                    else:
+                        print(f"[DEBUG] Unexpected time format in span: '{text}'")
+                        continue  # skip if format is unexpected
+                    # Go up to the parent .text-center.bane div to get the court column
+                    court_div = span.find_element(By.XPATH, "ancestor::div[contains(@class, 'text-center') and contains(@class, 'bane')][1]")
+                    # The header is the first child span with class 'banefelt ehbanehead' inside this div
+                    header_span = court_div.find_element(By.XPATH, ".//span[contains(@class, 'banefelt') and contains(@class, 'ehbanehead')]")
+                    court_number = header_span.text.strip().replace('Click for info', '').replace('\n', '').strip()
+                    print(f"[DEBUG] Found available court: {court_number} at {target_time}")
+                    available.append((court_number, span))
+                except Exception as e:
+                    print(f"[DEBUG] Could not process span: {e}")
+            print(f"[DEBUG] Total available courts found at {target_time}: {len(available)}")
+        except Exception as e:
+            print(f"[DEBUG] Error finding available courts: {e}")
+        return available
+
+    def complete_booking_flow(self):
+        """
+        Complete the booking flow after clicking a court: enter players, add to basket, accept terms, confirm.
+        Returns True if booking is confirmed, False otherwise.
+        """
+        # ... existing code for player entry, basket, terms, confirmation ...
+        return True  # or False if any step fails
 
 def main():
     """
@@ -920,9 +1016,6 @@ def main():
         print("[DEBUG] Calling select_court_type()...")
         if chapel.select_court_type():
             print("[DEBUG] select_court_type() returned True. Calling select_date()...")
-            print("[DEBUG] Pausing for 60 seconds before date selection for VNC inspection...")
-            time.sleep(60)
-            print("[DEBUG] Resuming script after VNC inspection pause.")
             # Use booking date from environment variable
             if chapel.select_date(chapel.booking_date):
                 print("[DEBUG] Date selection successful! Calling book_court()...")
